@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     /* File Layout */
-    "outDir": "./website",
+    "outDir": "./docs",
 
     /* Environment Settings */
     "module": "ESNext",
