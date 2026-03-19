@@ -1,1 +1,5 @@
 Allow other variables in user function so they can do like integrations and derivatives
+
+and then create multiple plots but render only one at a time and user can slide time variable
+
+so cool things like can visualize step and delta funtions 
