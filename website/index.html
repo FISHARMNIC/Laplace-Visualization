@@ -12,21 +12,79 @@
     <script type="module" src="plot.js" defer></script>
 
     <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+        }
+
         body {
             display: flex;
             flex-direction: column;
             align-items: center;
         }
+
+        #chart {
+            width: 90vw;
+            height: 80vh;
+        }
+
+        #chartWrapper {
+    position: relative;
+    width: 90vw;
+    height: 80vh;
+}
+
+#chart {
+    width: 100%;
+    height: 100%;
+}
+
+#status {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(139, 90, 0, 0.702);
+    color: white;
+    padding: 16px 32px;
+    border-radius: 8px;
+    font-size: 1.2rem;
+    pointer-events: none; /* lets clicks pass through to chart */
+    z-index: 10;
+}
     </style>
 
 </head>
 
 <body>
+    <div id="chartWrapper">
     <div id='chart'></div>
-    <pre id="answer"></pre>
+    <div id="status">Loading...</div>
+</div>
 
-    <input id='user_function' style="text-align: center; width: 50vw;">
-    <button id="enter" style="padding: 20px;">enter</button>
+    <pre id="answer" style="margin-bottom: 10px; background-color: bisque; font-size: larger;"></pre>
+    <div>
+        <input id='user_function' style="text-align: center; width: 50vw; padding: 20px; font-size: larger;">
+        <button id="enter" style="padding: 20px; font-size: larger;">enter</button>
+    </div>
+    <div style="margin-top: 10px;">
+        <input type="range" id="range" name="range" value='5' min="0" max="10"
+            onchange="document.getElementById('rangeLabel').innerText = 'Range: ' + document.getElementById('range').value" />
+        <label for="range" id="rangeLabel">Range: 5</label>
+    </div>
+    <div style="margin-top: 10px;">
+        <input type="range" id="prec" name="prec" value='2' min="1" max="10"
+            onchange="document.getElementById('precLabel').innerText = 'Step: ' + parseInt(document.getElementById('prec').value)/20 " />
+        <label for="prec" id="precLabel">Step: 0.1</label>
+    </div>
+
 </body>
 
 </html>

@@ -1,5 +1,5 @@
 import { render } from "./plot.js";
-export let func = (x) => Math.exp(-x) * Math.sin(x);
+export let func = (x) => Math.sin(x) + Math.sin(2 * x) + Math.exp(-x) * Math.sin(3 * x);
 // @ts-ignore
 document.getElementById('user_function').value = func.toString();
 document.getElementById('enter').onclick = () => {
@@ -8,6 +8,8 @@ document.getElementById('enter').onclick = () => {
 };
 function update_func() {
     // @ts-ignore
-    func = eval(document.getElementById('user_function').value);
+    const str = document.getElementById('user_function').value;
+    // yes.. unsafe
+    func = eval(str);
 }
 //# sourceMappingURL=func.js.map

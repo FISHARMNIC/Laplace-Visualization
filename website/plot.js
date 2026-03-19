@@ -1,30 +1,48 @@
 import { laplace, magnitude } from "./index.js";
 import { aaaFit } from "./aaa.js";
 import { func } from "./func.js";
-const sigmas = [];
-const omegas = [];
-for (let i = -3; i < 3; i += 0.05) {
-    sigmas.push(i);
-    omegas.push(i);
+import { getRange, getStep, set_found, set_status } from "./dom.js";
+// Bounds
+let sigmas;
+let omegas;
+function generate_bounds() {
+    sigmas = [];
+    omegas = [];
+    const minmax = getRange();
+    const step = getStep();
+    for (let i = -minmax; i < minmax; i += step) {
+        sigmas.push(i);
+        omegas.push(i);
+    }
 }
+// Used for the poles display.
+const SMOOTHNESS = 0.1;
+const DIVISOR = 100;
+const MODE_TEST = false;
+let poles = []; // List of all found poles
+let z; // z points (poles)
+let mapped; // List of poles mapped to the Re +/- Imi format
 render();
-export function render() {
+export function calculate() {
+    generate_bounds();
     console.log('rendering function:', func);
-    const SMOOTHNESS = 0.1;
-    const DIVISOR = 100;
     // Sample along a vertical line safely inside the ROC
     const epsilon = 0.1;
     const trainOmegas = Array.from({ length: 300 }, (_, i) => -15 + i * 0.1);
     const trainZ = trainOmegas.map(w => ({ re: epsilon, im: w }));
     const trainF = trainZ.map(s => laplace(s, func));
-    const poles = [];
     function find_poles() {
+        poles = [];
         // 2. Fit rational approximant
         const approx = aaaFit(trainZ, trainF);
+        const SENS = 10000000;
+        const CHECK = 100 / SENS;
+        // console.log(CHECK)
         omegas.forEach(omega => sigmas.forEach(sigma => {
             const n = { re: sigma, im: omega };
-            const divided = magnitude(approx(n)) / 10000000;
-            if (divided > 10) {
+            const divided = magnitude(approx(n)) / SENS;
+            // console.log(divided > CHECK)
+            if (divided > CHECK) {
                 poles.push(n);
             }
         }));
@@ -46,11 +64,48 @@ export function render() {
         return DIVISOR / (nearest_pole_distance + SMOOTHNESS);
     }
     // valuate anywhere — including LHP
-    find_poles();
-    const z = omegas.map(omega => sigmas.map(sigma => poles_distance({ re: sigma, im: omega })));
-    document.getElementById('answer').innerText = 'Poles found at: ' + poles.map((n) => {
-        return `⟨${n.re.toFixed(3)}, ${n.im.toFixed(3)}⟩`;
-    }).join(", ");
+    if (MODE_TEST) {
+        const approx = aaaFit(trainZ, trainF);
+        z = omegas.map(omega => sigmas.map(sigma => {
+            const n = { re: sigma, im: omega };
+            const divided = magnitude(approx(n)) / 10000000;
+            return divided;
+        }));
+    }
+    else {
+        find_poles();
+        z = omegas.map(omega => sigmas.map(sigma => poles_distance({ re: sigma, im: omega })));
+    }
+    mapped = poles.map(format_point);
+    set_found(mapped);
+}
+export async function render() {
+    set_status(false);
+    setTimeout(() => {
+        calculate();
+        create_plot();
+        set_status(true);
+    }, 0);
+}
+function format_point(n) {
+    const re = parseFloat(n.re.toFixed(3));
+    const im = parseFloat(n.im.toFixed(3));
+    if (re == 0 && im == 0) {
+        return `0`;
+    }
+    else if (re == 0) {
+        return im == 1 ? `i` : (im == -1 ? `-i` : `${im}i`);
+        ;
+    }
+    else if (im == 0) {
+        return `${re}`;
+    }
+    else {
+        const sign = im > 0 ? '+' : '-';
+        return `${re} ${sign} ${Math.abs(im)}i`;
+    }
+}
+function create_plot() {
     // @ts-ignore
     Plotly.newPlot('chart', [
         {
@@ -58,26 +113,48 @@ export function render() {
             x: sigmas,
             y: omegas,
             z: z,
-            colorscale: 'Portland'
+            colorscale: 'Portland',
+            showlegend: false,
+            showscale: false,
         },
         {
             type: 'scatter3d',
-            mode: 'markers',
+            mode: 'text',
             x: poles.map(p => p.re),
             y: poles.map(p => p.im),
             z: poles.map(() => DIVISOR / SMOOTHNESS),
-            marker: {
-                size: 8,
+            text: mapped,
+            textfont: {
                 color: 'purple',
-                symbol: 'x',
+                size: 14,
             },
-            name: 'Poles'
+            name: 'Poles',
+            showscale: false,
         }
     ], {
         title: { text: 'S Domain' },
-        // autosize: false, 
-        // width: 500, 
-        height: 800,
-    });
+        autosize: true,
+        showlegend: false,
+        // width: 900, 
+        // height: 800,
+        scene: {
+            xaxis: {
+                title: {
+                    text: 'Real (σ)'
+                }
+            },
+            yaxis: {
+                title: {
+                    text: 'Imaginary (ω)'
+                }
+            },
+            zaxis: {
+                title: {
+                    text: 'Pole'
+                },
+                showticklabels: false,
+            }
+        },
+    }, { responsive: true });
 }
 //# sourceMappingURL=plot.js.map

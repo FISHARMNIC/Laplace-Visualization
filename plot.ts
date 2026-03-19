@@ -1,44 +1,71 @@
 import { laplace, magnitude } from "./index.js";
 import { aaaFit, type Complex } from "./aaa.js";
 import { func } from "./func.js";
+import { getRange, getStep, set_found, set_status } from "./dom.js";
 
-const sigmas: number[] = [];
-const omegas: number[] = [];
+// Bounds
+let sigmas: number[]
+let omegas: number[]
+function generate_bounds() {
 
-for (let i = -3; i < 3; i += 0.05) {
-    sigmas.push(i);
-    omegas.push(i);
+    sigmas = [];
+    omegas = [];
+
+    const minmax: number = getRange();
+    const step: number = getStep();
+
+    for (let i = -minmax; i < minmax; i += step) {
+        sigmas.push(i);
+        omegas.push(i);
+    }
 }
+
+// Used for the poles display.
+const SMOOTHNESS = 0.1;
+const DIVISOR = 100;
+
+const MODE_TEST = false;
+
+
+let poles: Complex[] = [];  // List of all found poles
+let z: number[][];          // z points (poles)
+let mapped: string[];       // List of poles mapped to the Re +/- Imi format
 
 render();
 
-export function render() {
+
+export function calculate() {
+
+    generate_bounds();
 
     console.log('rendering function:', func);
-
-    const SMOOTHNESS = 0.1;
-    const DIVISOR = 100;
-
 
 
     // Sample along a vertical line safely inside the ROC
     const epsilon = 0.1;
     const trainOmegas = Array.from({ length: 300 }, (_, i) => -15 + i * 0.1);
-    
+
     const trainZ: Complex[] = trainOmegas.map(w => ({ re: epsilon, im: w }));
     const trainF: Complex[] = trainZ.map(s => laplace(s, func));
 
-    const poles: Complex[] = [];
     function find_poles(): void {
+
+        poles = [];
 
         // 2. Fit rational approximant
         const approx = aaaFit(trainZ, trainF);
 
+        const SENS = 10000000;
+        const CHECK = 100 / SENS;
+
+        // console.log(CHECK)
+
         omegas.forEach(omega =>
             sigmas.forEach(sigma => {
                 const n: Complex = { re: sigma, im: omega }
-                const divided = magnitude(approx(n)) / 10000000;
-                if (divided > 10) {
+                const divided = magnitude(approx(n)) / SENS;
+                // console.log(divided > CHECK)
+                if (divided > CHECK) {
                     poles.push(n);
                 }
             }
@@ -70,46 +97,123 @@ export function render() {
 
     // valuate anywhere — including LHP
 
-    find_poles()
+    if (MODE_TEST) {
+        const approx = aaaFit(trainZ, trainF);
 
-    const z = omegas.map(omega =>
-        sigmas.map(sigma =>
-            poles_distance({ re: sigma, im: omega })
-        )
-    );
-
-    document.getElementById('answer')!.innerText = 'Poles found at: ' + poles.map((n: Complex): string => {
-        return `⟨${n.re.toFixed(3)}, ${n.im.toFixed(3)}⟩`
-    }).join(", ")
-
-
-    // @ts-ignore
-    Plotly.newPlot('chart', [
-    {
-        type: 'surface',
-        x: sigmas,
-        y: omegas,
-        z: z,
-        colorscale: 'Portland'
-    },
-    {
-        type: 'scatter3d',
-        mode: 'markers',
-        x: poles.map(p => p.re),
-        y: poles.map(p => p.im),
-        z: poles.map(() => DIVISOR / SMOOTHNESS),
-        marker: {
-            size: 8,
-            color: 'purple',
-            symbol: 'x',
-        },
-        name: 'Poles'
+        z = omegas.map(omega =>
+            sigmas.map(sigma => {
+                const n: Complex = { re: sigma, im: omega }
+                const divided = magnitude(approx(n)) / 10000000;
+                return divided
+            }
+            )
+        );
     }
-], {
-    title: { text: 'S Domain' },
-    // autosize: false, 
-    // width: 500, 
-    height: 800,
-});
+    else {
+        find_poles()
+
+        z = omegas.map(omega =>
+            sigmas.map(sigma =>
+                poles_distance({ re: sigma, im: omega })
+            )
+        );
+    }
+
+    mapped = poles.map(format_point);
+
+    set_found(mapped);
+
+}
+
+export async function render() {
+
+    set_status(false);
+    setTimeout(() => {
+        calculate();
+        create_plot();
+        set_status(true);
+    }, 0);
+
+}
+
+function format_point(n: Complex): string {
+    const re = parseFloat(n.re.toFixed(3));
+    const im = parseFloat(n.im.toFixed(3));
+
+    if (re == 0 && im == 0) {
+        return `0`;
+    }
+    else if (re == 0) {
+        return im == 1 ? `i` : (im == -1 ? `-i` : `${im}i`);;
+    }
+    else if (im == 0) {
+        return `${re}`;
+    }
+    else {
+        const sign = im > 0 ? '+' : '-';
+        return `${re} ${sign} ${Math.abs(im)}i`
+    }
+}
+
+function create_plot() {
+    // @ts-ignore
+    Plotly.newPlot('chart',
+        [
+            {
+                type: 'surface',
+                x: sigmas,
+                y: omegas,
+                z: z,
+                colorscale: 'Portland',
+                showlegend: false,
+                showscale: false,
+
+            },
+            {
+                type: 'scatter3d',
+                mode: 'text',
+                x: poles.map(p => p.re),
+                y: poles.map(p => p.im),
+                z: poles.map(() => DIVISOR / SMOOTHNESS),
+                text: mapped,
+                textfont: {
+                    color: 'purple',
+                    size: 14,
+                },
+                name: 'Poles',
+                showscale: false,
+            }
+        ],
+        {
+            title: { text: 'S Domain' },
+            autosize: true,
+            showlegend: false,
+
+            // width: 900, 
+            // height: 800,
+
+            scene: {
+                xaxis: {
+                    title: {
+                        text: 'Real (σ)'
+                    }
+                },
+                yaxis: {
+                    title: {
+                        text: 'Imaginary (ω)'
+                    }
+                },
+                zaxis: {
+                    title: {
+                        text: 'Pole'
+                    },
+                    showticklabels: false,
+
+                }
+            },
+        },
+        { responsive: true }
+
+    );
 
 }

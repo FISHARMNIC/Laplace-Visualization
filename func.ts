@@ -1,6 +1,6 @@
 import { render } from "./plot.js";
 
-export let func = (x: number) => Math.exp(-x) * Math.sin(x);
+export let func = (x: number) => Math.sin(x) + Math.sin(2*x) + Math.exp(-x) * Math.sin(3*x);
 
 // @ts-ignore
 document.getElementById('user_function')!.value = func.toString();
@@ -13,5 +13,8 @@ document.getElementById('enter')!.onclick = () => {
 function update_func()
 {
     // @ts-ignore
-    func = eval(document.getElementById('user_function')!.value);
+    const str: string = document.getElementById('user_function')!.value;
+
+    // yes.. unsafe
+    func = eval(str);
 }
