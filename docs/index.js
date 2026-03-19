@@ -1,38 +1,161 @@
-export function magnitude(c) {
-    return Math.sqrt(c.re ** 2 + c.im ** 2);
-}
-export function phase(c) {
-    return Math.atan2(c.im, c.re);
-}
-export function laplace(s, fn) {
-    const upper = s.re > 0 ? Math.ceil(100 / s.re) : 100000;
-    const dx = upper / 100000; //Math.min(upper / 10000, 1);
-    let re = 0;
-    let im = 0;
-    // console.log(Math.round(s.re), Math.round(s.im), "precision:", dx.toFixed(3));
-    /*
-    Laplace using eulers formula becomes:
-
-    Real: Int(0->Inf): f(t)e^(-Re*t)cos(Im*t) dt
-    Imag: Int(0->Inf): -f(t)e^(-Re*t)sin(Im*t) dt
-
-    */
-    for (let x = 0; x <= upper; x += dx) {
-        const fx = fn(x);
-        // e^(-st)
-        const exp_e = Math.exp(-s.re * x);
-        const euler_re = exp_e * Math.cos(s.im * x);
-        const euler_im = exp_e * Math.sin(s.im * x);
-        re += fx * euler_re * dx;
-        im += -fx * euler_im * dx;
-        if (!isFinite(re) || !isFinite(im)) {
-            return { re: Infinity, im: Infinity };
-        }
+import { laplace, magnitude } from "./laplace.js";
+import { aaaFit } from "./aaa.js";
+import { func } from "./func.js";
+import { getRange, getStep, set_found, set_status } from "./dom.js";
+// Bounds
+let sigmas;
+let omegas;
+function generate_bounds() {
+    sigmas = [];
+    omegas = [];
+    const minmax = getRange();
+    const step = getStep();
+    for (let i = -minmax; i < minmax; i += step) {
+        sigmas.push(i);
+        omegas.push(i);
     }
-    // console.log(re, im)
-    return { re, im };
 }
-export function laplace_magnitude(s, fn) {
-    return magnitude(laplace(s, fn));
+// Used for the poles display.
+const SMOOTHNESS = 0.1;
+const DIVISOR = 100;
+const MODE_TEST = false;
+let poles = []; // List of all found poles
+let z; // z points (poles)
+let mapped; // List of poles mapped to the Re +/- Imi format
+render();
+export async function render() {
+    set_status(false);
+    // forces dom re-render.
+    setTimeout(() => {
+        calculate();
+        create_plot();
+        set_status(true);
+    }, 0);
+}
+export function calculate() {
+    generate_bounds();
+    console.log('rendering function:', func);
+    // Sample along a vertical line safely inside the ROC
+    const epsilon = 0.1;
+    const trainOmegas = Array.from({ length: 300 }, (_, i) => -15 + i * 0.1);
+    const trainZ = trainOmegas.map(w => ({ re: epsilon, im: w }));
+    const trainF = trainZ.map(s => laplace(s, func));
+    function find_poles() {
+        poles = [];
+        // 2. Fit rational approximant
+        const approx = aaaFit(trainZ, trainF);
+        const SENS = 10000000;
+        const CHECK = 100 / SENS;
+        // console.log(CHECK)
+        omegas.forEach(omega => sigmas.forEach(sigma => {
+            const n = { re: sigma, im: omega };
+            const divided = magnitude(approx(n)) / SENS;
+            // console.log(divided > CHECK)
+            if (divided > CHECK) {
+                poles.push(n);
+            }
+        }));
+    }
+    function poles_distance(n) {
+        function distance(a, b) {
+            return Math.sqrt((a.re - b.re) ** 2 + (a.im - b.im) ** 2);
+        }
+        let nearest_pole_distance = 10000;
+        for (const pole of poles) {
+            const new_distance = distance(n, pole);
+            if (new_distance < nearest_pole_distance) {
+                nearest_pole_distance = new_distance;
+                if (nearest_pole_distance == 0) {
+                    break;
+                }
+            }
+        }
+        return DIVISOR / (nearest_pole_distance + SMOOTHNESS);
+    }
+    // Evaluate anywhere — including LHP
+    if (MODE_TEST) {
+        const approx = aaaFit(trainZ, trainF);
+        z = omegas.map(omega => sigmas.map(sigma => {
+            const n = { re: sigma, im: omega };
+            const divided = magnitude(approx(n)) / 10000000;
+            return divided;
+        }));
+    }
+    else {
+        find_poles();
+        z = omegas.map(omega => sigmas.map(sigma => poles_distance({ re: sigma, im: omega })));
+    }
+    mapped = poles.map(format_point);
+    set_found(mapped);
+}
+function format_point(n) {
+    const re = parseFloat(n.re.toFixed(3));
+    const im = parseFloat(n.im.toFixed(3));
+    if (re == 0 && im == 0) {
+        return `0`;
+    }
+    else if (re == 0) {
+        return im == 1 ? `i` : (im == -1 ? `-i` : `${im}i`);
+        ;
+    }
+    else if (im == 0) {
+        return `${re}`;
+    }
+    else {
+        const sign = im > 0 ? '+' : '-';
+        return `${re} ${sign} ${Math.abs(im)}i`;
+    }
+}
+function create_plot() {
+    // @ts-ignore
+    Plotly.newPlot('chart', [
+        {
+            type: 'surface',
+            x: sigmas,
+            y: omegas,
+            z: z,
+            colorscale: 'Portland',
+            showlegend: false,
+            showscale: false,
+        },
+        {
+            type: 'scatter3d',
+            mode: 'text',
+            x: poles.map(p => p.re),
+            y: poles.map(p => p.im),
+            z: poles.map(() => DIVISOR / SMOOTHNESS),
+            text: mapped,
+            textfont: {
+                color: 'purple',
+                size: 14,
+            },
+            name: 'Poles',
+            showscale: false,
+        }
+    ], {
+        title: { text: 'S Domain' },
+        autosize: true,
+        showlegend: false,
+        // width: 900, 
+        // height: 800,
+        scene: {
+            xaxis: {
+                title: {
+                    text: 'Real (σ)'
+                }
+            },
+            yaxis: {
+                title: {
+                    text: 'Imaginary (ω)'
+                }
+            },
+            zaxis: {
+                title: {
+                    text: 'Pole'
+                },
+                showticklabels: false,
+            }
+        },
+    }, { responsive: true });
 }
 //# sourceMappingURL=index.js.map

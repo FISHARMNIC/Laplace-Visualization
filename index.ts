@@ -1,54 +1,221 @@
-import type { Complex } from "./aaa";
+import { laplace, magnitude } from "./laplace.js";
+import { aaaFit, type Complex } from "./aaa.js";
+import { func } from "./func.js";
+import { getRange, getStep, set_found, set_status } from "./dom.js";
 
-export type MathFn = (x: number) => number;
+// Bounds
+let sigmas: number[]
+let omegas: number[]
+function generate_bounds() {
 
-export function magnitude(c: Complex): number {
-    return Math.sqrt(c.re ** 2 + c.im ** 2);
+    sigmas = [];
+    omegas = [];
+
+    const minmax: number = getRange();
+    const step: number = getStep();
+
+    for (let i = -minmax; i < minmax; i += step) {
+        sigmas.push(i);
+        omegas.push(i);
+    }
 }
 
-export function phase(c: Complex): number {
-    return Math.atan2(c.im, c.re);
+// Used for the poles display.
+const SMOOTHNESS = 0.1;
+const DIVISOR = 100;
+
+const MODE_TEST = false;
+
+
+let poles: Complex[] = [];  // List of all found poles
+let z: number[][];          // z points (poles)
+let mapped: string[];       // List of poles mapped to the Re +/- Imi format
+
+render();
+
+export async function render() {
+
+    set_status(false);
+
+    // forces dom re-render.
+    setTimeout(() => {
+        calculate();
+        create_plot();
+        set_status(true);
+    }, 0);
+
 }
 
-export function laplace(s: Complex, fn: MathFn): Complex {
+export function calculate() {
 
-    const upper = s.re > 0 ? Math.ceil(100 / s.re) : 100000;
-    const dx = upper / 100000; //Math.min(upper / 10000, 1);
+    generate_bounds();
 
-    let re = 0;
-    let im = 0;
+    console.log('rendering function:', func);
 
-    // console.log(Math.round(s.re), Math.round(s.im), "precision:", dx.toFixed(3));
 
-    /*
-    Laplace using eulers formula becomes:
+    // Sample along a vertical line safely inside the ROC
+    const epsilon = 0.1;
+    const trainOmegas = Array.from({ length: 300 }, (_, i) => -15 + i * 0.1);
 
-    Real: Int(0->Inf): f(t)e^(-Re*t)cos(Im*t) dt
-    Imag: Int(0->Inf): -f(t)e^(-Re*t)sin(Im*t) dt
+    const trainZ: Complex[] = trainOmegas.map(w => ({ re: epsilon, im: w }));
+    const trainF: Complex[] = trainZ.map(s => laplace(s, func));
 
-    */
+    function find_poles(): void {
 
-    for (let x = 0; x <= upper; x += dx) {
-        const fx = fn(x);
+        poles = [];
 
-        // e^(-st)
-        const exp_e = Math.exp(-s.re * x);
-        const euler_re = exp_e * Math.cos(s.im * x);
-        const euler_im = exp_e * Math.sin(s.im * x);
+        // 2. Fit rational approximant
+        const approx = aaaFit(trainZ, trainF);
 
-        re +=  fx * euler_re * dx;
-        im += -fx * euler_im * dx;
+        const SENS = 10000000;
+        const CHECK = 100 / SENS;
 
-        if (!isFinite(re) || !isFinite(im)) {
-            return { re: Infinity, im: Infinity };
-        }
+        // console.log(CHECK)
+
+        omegas.forEach(omega =>
+            sigmas.forEach(sigma => {
+                const n: Complex = { re: sigma, im: omega }
+                const divided = magnitude(approx(n)) / SENS;
+                // console.log(divided > CHECK)
+                if (divided > CHECK) {
+                    poles.push(n);
+                }
+            }
+            )
+        );
+
     }
 
-    // console.log(re, im)
+    function poles_distance(n: Complex): number {
 
-    return { re, im };
+        function distance(a: Complex, b: Complex): number {
+            return Math.sqrt((a.re - b.re) ** 2 + (a.im - b.im) ** 2);
+        }
+
+        let nearest_pole_distance = 10000;
+
+        for (const pole of poles) {
+            const new_distance = distance(n, pole);
+            if (new_distance < nearest_pole_distance) {
+                nearest_pole_distance = new_distance;
+                if (nearest_pole_distance == 0) {
+                    break;
+                }
+            }
+        }
+
+        return DIVISOR / (nearest_pole_distance + SMOOTHNESS);
+    }
+
+    // Evaluate anywhere — including LHP
+
+    if (MODE_TEST) {
+        const approx = aaaFit(trainZ, trainF);
+
+        z = omegas.map(omega =>
+            sigmas.map(sigma => {
+                const n: Complex = { re: sigma, im: omega }
+                const divided = magnitude(approx(n)) / 10000000;
+                return divided
+            }
+            )
+        );
+    }
+    else {
+        find_poles()
+
+        z = omegas.map(omega =>
+            sigmas.map(sigma =>
+                poles_distance({ re: sigma, im: omega })
+            )
+        );
+    }
+
+    mapped = poles.map(format_point);
+
+    set_found(mapped);
+
 }
 
-export function laplace_magnitude(s: Complex, fn: MathFn): number {
-    return magnitude(laplace(s, fn));
+
+function format_point(n: Complex): string {
+    const re = parseFloat(n.re.toFixed(3));
+    const im = parseFloat(n.im.toFixed(3));
+
+    if (re == 0 && im == 0) {
+        return `0`;
+    }
+    else if (re == 0) {
+        return im == 1 ? `i` : (im == -1 ? `-i` : `${im}i`);;
+    }
+    else if (im == 0) {
+        return `${re}`;
+    }
+    else {
+        const sign = im > 0 ? '+' : '-';
+        return `${re} ${sign} ${Math.abs(im)}i`
+    }
+}
+
+function create_plot() {
+    // @ts-ignore
+    Plotly.newPlot('chart',
+        [
+            {
+                type: 'surface',
+                x: sigmas,
+                y: omegas,
+                z: z,
+                colorscale: 'Portland',
+                showlegend: false,
+                showscale: false,
+
+            },
+            {
+                type: 'scatter3d',
+                mode: 'text',
+                x: poles.map(p => p.re),
+                y: poles.map(p => p.im),
+                z: poles.map(() => DIVISOR / SMOOTHNESS),
+                text: mapped,
+                textfont: {
+                    color: 'purple',
+                    size: 14,
+                },
+                name: 'Poles',
+                showscale: false,
+            }
+        ],
+        {
+            title: { text: 'S Domain' },
+            autosize: true,
+            showlegend: false,
+
+            // width: 900, 
+            // height: 800,
+
+            scene: {
+                xaxis: {
+                    title: {
+                        text: 'Real (σ)'
+                    }
+                },
+                yaxis: {
+                    title: {
+                        text: 'Imaginary (ω)'
+                    }
+                },
+                zaxis: {
+                    title: {
+                        text: 'Pole'
+                    },
+                    showticklabels: false,
+
+                }
+            },
+        },
+        { responsive: true }
+
+    );
+
 }

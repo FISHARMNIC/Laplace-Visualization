@@ -1,4 +1,4 @@
-import { render } from "./plot.js";
+import { render } from "./index.js";
 export let func = (x) => Math.sin(x) + Math.sin(2 * x) + Math.exp(-x) * Math.sin(3 * x);
 // @ts-ignore
 document.getElementById('user_function').value = func.toString();
